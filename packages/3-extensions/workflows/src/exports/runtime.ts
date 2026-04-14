@@ -1,4 +1,8 @@
-// Runtime exports will be added in subsequent milestones.
-// M2: persistence repositories, trigger, signal, executeWorkflow
-// M1: db.workflows.* client augmentation
-export {};
+export { createRepos, type WorkflowRepos, type WorkflowsOrm } from '../persistence/repos';
+export type {
+  AnyStepDef,
+  SignalStepDef,
+  StepDef,
+  WorkflowDef,
+} from '../runtime/execute-workflow';
+export { createWorkflowRuntime, type WorkflowRuntime } from '../runtime/workflow-runtime';

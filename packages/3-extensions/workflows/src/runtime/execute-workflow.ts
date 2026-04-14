@@ -89,7 +89,7 @@ export async function executeWorkflow(ctx: ExecuteWorkflowContext): Promise<void
 
       try {
         const patch = await step.execute(state);
-        state = { ...state, ...patch };
+        state = { ...state, ...patch } as WorkflowState;
         await repos.replaceStateFields(runId, state);
         await repos.markStepCompleted(stepRunId);
         await repos.appendEvent({ eventType: 'step_completed', runId, stepId: step.id, attempt });

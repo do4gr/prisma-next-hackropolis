@@ -1,9 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import type postgres from '@prisma-next/postgres/runtime';
 import type { workflowsContract } from './contract';
 import { flattenState, hydrateState, type WorkflowState } from './state';
 
 type WorkflowsClient = ReturnType<typeof postgres<typeof workflowsContract>>;
 export type WorkflowsOrm = WorkflowsClient['orm'];
+
+// Autoincrement id and defaultSql('now()') fields cannot be inferred as optional in CreateInput
+// by TypeScript when using a programmatic (non-emitted) contract. These type aliases are used
+// to satisfy the type checker while the DB handles their values at runtime.
+type WsfCreateInput = Parameters<WorkflowsOrm['WorkflowStateField']['createCount']>[0];
+type WsrCreateInput = Parameters<WorkflowsOrm['WorkflowStepRun']['create']>[0];
+type WeCreateInput = Parameters<WorkflowsOrm['WorkflowEvent']['create']>[0];
 
 export interface WorkflowRunRow {
   readonly id: string;
@@ -14,8 +22,8 @@ export interface WorkflowRunRow {
   readonly computeServiceId: string | null;
   readonly computeServiceEndpoint: string | null;
   readonly version: number;
-  readonly createdAt: Date;
-  readonly updatedAt: Date;
+  readonly createdAt: string | Date;
+  readonly updatedAt: string | Date;
 }
 
 export interface InsertRunInput {
@@ -62,7 +70,17 @@ export interface WorkflowRepos {
 export function createRepos(orm: WorkflowsOrm): WorkflowRepos {
   return {
     async insertRun({ workflowId }) {
-      const row = await orm.WorkflowRun.create({ workflowId, status: 'queued', version: 0 });
+      const now = new Date();
+      // Provide id explicitly: TypeScript can't infer the execution-default UUID generator
+      // as optional in CreateInput for programmatic contracts.
+      const row = await orm.WorkflowRun.create({
+        id: randomUUID(),
+        workflowId,
+        status: 'queued',
+        version: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
       return row.id;
     },
 
@@ -92,7 +110,10 @@ export function createRepos(orm: WorkflowsOrm): WorkflowRepos {
       await orm.WorkflowStateField.where({ runId }).deleteCount();
       const fields = flattenState(runId, state);
       if (fields.length > 0) {
-        await orm.WorkflowStateField.createCount(fields);
+        const now = new Date();
+        const rows = fields.map((f) => ({ ...f, updatedAt: now }));
+        // as unknown as: autoincrement id cannot be inferred as DB-generated for programmatic contracts
+        await orm.WorkflowStateField.createCount(rows as unknown as WsfCreateInput);
       }
     },
 
@@ -102,13 +123,14 @@ export function createRepos(orm: WorkflowsOrm): WorkflowRepos {
     },
 
     async insertStepRun({ runId, stepId, attempt }) {
+      // as unknown as: autoincrement id cannot be inferred as DB-generated for programmatic contracts
       const row = await orm.WorkflowStepRun.create({
         runId,
         stepId,
         attempt,
         status: 'running',
         startedAt: new Date(),
-      });
+      } as unknown as WsrCreateInput);
       return row.id;
     },
 
@@ -136,14 +158,18 @@ export function createRepos(orm: WorkflowsOrm): WorkflowRepos {
     },
 
     async appendEvent({ eventType, runId, stepId, attempt, signalId, message }) {
+      const now = new Date();
+      // as unknown as: autoincrement id and defaultSql('now()') createdAt cannot be inferred as
+      // DB-generated for programmatic contracts
       await orm.WorkflowEvent.create({
         eventType,
         runId,
+        createdAt: now,
         ...(stepId !== undefined ? { stepId } : {}),
         ...(attempt !== undefined ? { attempt } : {}),
         ...(signalId !== undefined ? { signalId } : {}),
         ...(message !== undefined ? { message } : {}),
-      });
+      } as unknown as WeCreateInput);
     },
   };
 }
